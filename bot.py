@@ -16,11 +16,11 @@ LAST_MESSAGE_TIME = None
 bot = commands.Bot(command_prefix="!", intents=discord.Intents.all())
 processed_hashes = deque(maxlen=hash_limit)
 
-info_logger = logging.getLogger("INFO    ")
+info_logger = logging.getLogger("Discord")
 coloredlogs.install(level="INFO", logger=info_logger)
-debug_logger = logging.getLogger("Websockets")
+debug_logger = logging.getLogger("WebSocket")
 coloredlogs.install(level="DEBUG", logger=debug_logger)
-error_logger = logging.getLogger("ERROR    ")
+error_logger = logging.getLogger("Discord")
 coloredlogs.install(level="ERROR", logger=error_logger)
 
 
