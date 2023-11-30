@@ -8,11 +8,20 @@ import asyncio
 from collections import deque
 import time
 from config import *
+import logging
+import coloredlogs
 
 LAST_MESSAGE_TIME = None
 
 bot = commands.Bot(command_prefix="!", intents=discord.Intents.all())
 processed_hashes = deque(maxlen=hash_limit)
+
+info_logger = logging.getLogger("INFO    ")
+coloredlogs.install(level="INFO", logger=info_logger)
+debug_logger = logging.getLogger("Websockets")
+coloredlogs.install(level="DEBUG", logger=debug_logger)
+error_logger = logging.getLogger("ERROR    ")
+coloredlogs.install(level="ERROR", logger=error_logger)
 
 
 def start_websocket():
@@ -21,7 +30,7 @@ def start_websocket():
     def on_ws_message(ws, message):
         global LAST_MESSAGE_TIME
         data = json.loads(message)
-        print("Received killmail")
+        info_logger.info("Received killmail")
         kill_hash = data.get("hash")
         url = data.get("url")
 
@@ -32,12 +41,13 @@ def start_websocket():
             # Process the message, e.g., send to Discord channel
             channel = bot.get_channel(channel_id)
             if channel:
-                print(f"Sending message to channel {channel.name}")
+                info_logger.info(f"Sending message to channel {channel.name}")
                 asyncio.run_coroutine_threadsafe(channel.send(url), bot.loop)
             else:
-                print("Channel not found")
+                error_logger.error("Channel not found")
+
         else:
-            print("Duplicate message received, ignoring.")
+            info_logger.info("Duplicate message received, ignoring.")
         LAST_MESSAGE_TIME = time.time()
 
     def on_ws_open(ws):
@@ -46,10 +56,10 @@ def start_websocket():
                 subscriptions = json.load(file)
             for subscription in subscriptions:
                 ws.send(json.dumps(subscription))
-                print(f"Subscribed to {subscription}")
-            print("Subscribed to all kills")
+                debug_logger.debug(f"Subscribed to {subscription}")
+            debug_logger.debug("Subscribed to all kills")
 
-        print("Opened WebSocket")
+        debug_logger.debug("Opened WebSocket")
         threading.Thread(target=run).start()
 
     ws = websocket.WebSocketApp(
@@ -69,7 +79,7 @@ async def manage_websocket():
     while True:
         await asyncio.sleep(10)  # Check every 10 seconds
         if (time.time() - LAST_MESSAGE_TIME) > inactivity_threshold:
-            print("WebSocket inactive, attempting to reconnect...")
+            debug_logger.debug("WebSocket inactive, attempting to reconnect...")
 
             # Close the WebSocket
             ws.close()
@@ -91,7 +101,7 @@ async def tq_status():
     )
     # fethch player count
     player_count = server_status.json()["players"]
-    print(f"Currently {player_count} players online")
+    info_logger.info(f"Currently {player_count} players online")
 
     # set bot status as player count
 
@@ -101,7 +111,7 @@ async def tq_status():
             name=f"Tq, {player_count} players online",
         )
     )
-    print("Updated bot status")
+    info_logger.info("Updated bot status")
 
 
 @tasks.loop(seconds=600)
@@ -111,13 +121,13 @@ async def status_update_loop():
 
 @bot.event
 async def on_ready():
-    print(f"Logged in as {bot.user}")
+    info_logger.info(f"Logged in as {bot.user}")
 
     bot.loop.create_task(manage_websocket())
-    print("Started WebSocket")
+    info_logger.info("Started WebSocket")
 
     status_update_loop.start()
-    print("Started status update loop")
+    info_logger.info("Started status update loop")
 
 
 bot.run(token)
