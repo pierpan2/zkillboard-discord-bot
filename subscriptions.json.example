@@ -1,0 +1,10 @@
+[
+    {
+        "action": "sub",
+        "channel": "killstream"
+    },
+    {
+        "action": "sub",
+        "channel": "public"
+    }
+]
