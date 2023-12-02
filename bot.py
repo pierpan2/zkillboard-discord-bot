@@ -12,8 +12,9 @@ import logging
 import coloredlogs
 
 LAST_MESSAGE_TIME = None
-global ws
-ws = None
+global ws_sub_kill_and_loss, ws_sub_only_loss
+ws_sub_kill_and_loss = None
+ws_sub_only_loss = None
 
 bot = commands.Bot(command_prefix="!", intents=discord.Intents.all())
 processed_hashes = deque(maxlen=hash_limit)
@@ -22,52 +23,96 @@ info_logger = logging.getLogger("Discord")
 coloredlogs.install(level="INFO", logger=info_logger)
 debug_logger = logging.getLogger("WebSocket")
 coloredlogs.install(level="DEBUG", logger=debug_logger)
-error_logger = logging.getLogger("Discord")
+error_logger = logging.getLogger("Error")
 coloredlogs.install(level="ERROR", logger=error_logger)
 
+"""
+Description: This function is used to send message to discord channel
+@:param ws: websocket
+@:param message: message received from websocket
+@:param track_kill: True if kill is to be tracked
+@:return: None
+"""
 
-def start_websocket_suball():
+
+def on_ws_message(ws, message, track_kill):
     global LAST_MESSAGE_TIME
+    data = json.loads(message)
+    info_logger.info("Received killmail")
+    kill_hash = data.get("hash")
+    url = data.get("url")
+    ship_id = data.get("ship_type_id")
 
-    def on_ws_message(ws, message):
-        global LAST_MESSAGE_TIME
-        data = json.loads(message)
-        info_logger.info("Received killmail")
-        kill_hash = data.get("hash")
-        url = data.get("url")
-
-        if kill_hash and kill_hash not in processed_hashes:
-            processed_hashes.append(
-                kill_hash
-            )  # Adds new hash and may remove the oldest if limit is reached
-            # Process the message, e.g., send to Discord channel
-            channel = bot.get_channel(channel_id)
-            if channel:
-                info_logger.info(f"Sending message to channel {channel.name}")
-                asyncio.run_coroutine_threadsafe(channel.send(url), bot.loop)
-            else:
-                error_logger.error("Channel not found")
-
+    if kill_hash and kill_hash not in processed_hashes:
+        processed_hashes.append(
+            kill_hash
+        )  # Adds new hash and may remove the oldest if limit is reached
+        # Process the message, e.g., send to Discord channel
+        channel = bot.get_channel(channel_id)
+        # Send url only if track_kill is True or ship_id is in only_loss
+        if channel and (track_kill or ship_id in only_loss.values()):
+            info_logger.info(f"Sending message to channel {channel.name}")
+            asyncio.run_coroutine_threadsafe(channel.send(url), bot.loop)
         else:
-            info_logger.info("Duplicate message received, ignoring.")
-        LAST_MESSAGE_TIME = time.time()
+            error_logger.error("Channel not found")
 
-    def on_ws_open(ws):
-        def run(*args):
+    else:
+        info_logger.info("Duplicate message received, ignoring.")
+    LAST_MESSAGE_TIME = time.time()
+
+
+"""
+Description: This function is used to send message to discord channel
+@:param ws: websocket
+@:param dic: dictionary
+"""
+
+
+def on_ws_open(ws, dic):
+    def run(*args):
+        if dic == kill_and_loss:
+            debug_logger.debug("Subscribing to all kills")
             with open("subscriptions.json", "r") as file:
                 subscriptions = json.load(file)
-                # make subsricption subscribes suball
-                subscriptions = subscriptions["suball"]
             for subscription in subscriptions:
                 ws.send(json.dumps(subscription))
                 debug_logger.debug(f"Subscribed to {subscription}")
-            debug_logger.debug("Subscribed to all kills")
+        for ship in dic:
+            ws.send(
+                json.dumps(
+                    {
+                        "action": "sub",
+                        "channel": f"ship:{dic[ship]}",
+                    }
+                )
+            )
+            debug_logger.debug(f"Subscribed to {ship}")
+        debug_logger.debug("Subscribed to all kills")
 
-        debug_logger.debug("Opened WebSocket")
-        threading.Thread(target=run).start()
+    debug_logger.debug(f"Opened WebSocket for {dic}")
+    threading.Thread(target=run).start()
+
+
+def start_websocket_kill_and_loss():
+    global LAST_MESSAGE_TIME
 
     ws = websocket.WebSocketApp(
-        "wss://zkillboard.com/websocket/", on_open=on_ws_open, on_message=on_ws_message
+        "wss://zkillboard.com/websocket/",
+        on_open=lambda ws: on_ws_open(ws, dic=kill_and_loss),
+        on_message=lambda ws, message: on_ws_message(ws, message, track_kill=True),
+    )
+    ws_thread = threading.Thread(target=ws.run_forever)
+    ws_thread.start()
+    return ws, ws_thread
+
+
+def start_websocket_only_loss():
+    global LAST_MESSAGE_TIME
+
+    ws = websocket.WebSocketApp(
+        "wss://zkillboard.com/websocket/",
+        on_open=lambda ws: on_ws_open(ws, dic=only_loss),
+        on_message=lambda ws, message: on_ws_message(ws, message, False),
     )
     ws_thread = threading.Thread(target=ws.run_forever)
     ws_thread.start()
@@ -77,8 +122,9 @@ def start_websocket_suball():
 async def manage_websocket():
     global LAST_MESSAGE_TIME
     LAST_MESSAGE_TIME = time.time()
-    global ws
-    ws, ws_thread = start_websocket_suball()
+    global ws_sub_kill_and_loss, ws_sub_only_loss
+    ws_sub_kill_and_loss, ws_thread_kill_and_loss = start_websocket_kill_and_loss()
+    ws_sub_only_loss, ws_thread_only_loss = start_websocket_only_loss()
 
     while True:
         await asyncio.sleep(10)  # Check every 10 seconds
@@ -86,16 +132,22 @@ async def manage_websocket():
             debug_logger.debug("WebSocket inactive, attempting to reconnect...")
 
             # Close the WebSocket
-            ws.close()
-            ws = None
+            ws_sub_kill_and_loss.close()
+            ws_sub_kill_and_loss = None
+            ws_sub_only_loss.close()
+            ws_sub_only_loss = None
             # Check if the thread is still alive and join it if it is
-            if ws_thread.is_alive():
-                ws_thread.join(
+            if ws_thread_kill_and_loss.is_alive():
+                ws_thread_kill_and_loss.join(
                     timeout=10
                 )  # Wait for the thread to finish with a timeout
 
             # Reinitialize the WebSocket and thread
-            ws, ws_thread = start_websocket_suball()
+            (
+                ws_sub_kill_and_loss,
+                ws_thread_kill_and_loss,
+            ) = start_websocket_kill_and_loss()
+            ws_sub_only_loss, ws_thread_only_loss = start_websocket_only_loss()
             LAST_MESSAGE_TIME = time.time()
 
 
@@ -130,7 +182,7 @@ async def on_ready():
     info_logger.info(f"Logged in as {bot.user}")
 
     bot.loop.create_task(manage_websocket())
-    info_logger.info("Started WebSocket")
+    info_logger.info(f"Started WebSocket {ws_sub_kill_and_loss}")
 
     status_update_loop.start()
     info_logger.info("Started status update loop")
@@ -139,10 +191,10 @@ async def on_ready():
 # Below are added
 # This function add new item to subs.json file
 def add_subscription(sub_type, sub_id, filename="subscriptions.json"):
-    global ws
+    global ws_sub_kill_and_loss
     # Construct the new subscription item
     new_sub = {"action": "sub", "channel": f"{sub_type}:{sub_id}"}
-    ws.send(json.dumps(new_sub))
+    ws_sub_kill_and_loss.send(json.dumps(new_sub))
     # Read the current data from the file
     try:
         with open(filename, "r", encoding="utf-8") as file:
@@ -169,10 +221,10 @@ def add_subscription(sub_type, sub_id, filename="subscriptions.json"):
 # This function delete the item if in subs.json file
 def delete_subscription(sub_type, sub_id, filename="subscriptions.json"):
     # Construct the subscription item to be deleted
-    global ws
+    global ws_sub_kill_and_loss
     target_sub = {"action": "sub", "channel": f"{sub_type}:{sub_id}"}
 
-    ws.send(json.dumps(target_sub))
+    ws_sub_kill_and_loss.send(json.dumps(target_sub))
     try:
         # Read the current data from the file
         with open(filename, "r", encoding="utf-8") as file:
