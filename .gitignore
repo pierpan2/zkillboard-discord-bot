@@ -1,2 +1,4 @@
 config.py
 subscriptions.json
+__pycache__
+```
