@@ -4,9 +4,11 @@ channel_id = 1234567890  # Replace with your Discord channel ID
 token = "your_token_here"  # Replace with your Discord bot token
 
 kill_and_loss = {
-    "ship_name": ship_id,
+    "78414": "Shapash",
+    "ship_id": "ship_name",
 }
 # Titans and Supercaps and Lancer Dreads
 only_loss = {
-    "ship_name": ship_id,
+    "11567": "Avatar",
+    "ship_id": "ship_name",
 }
