@@ -34,6 +34,7 @@ Description: This function is used to send message to discord channel
 @:return: None
 """
 
+
 async def send_with_info(channel, km):
     kill_id = km.get("killID")
     kill_hash = km.get("hash")
@@ -45,21 +46,27 @@ async def send_with_info(channel, km):
     if response.status_code == 200:
         data = response.json()
         # Retrieve the subscribed characters and corporations
-        with open("subscriptions.json", 'r') as file:
+        with open("subscriptions.json", "r") as file:
             subsriptions = json.load(file)
         character_ids = set()
         corp_ids = set()
         for subscription in subsriptions:
-            if subscription['action'] == 'sub' and 'character:' in subscription['channel']:
-                character_id = subscription['channel'].split(':')[1]
-                character_ids.add(character_id)   
-            if subscription['action'] == 'sub' and 'corporation:' in subscription['channel']:
-                corp_id = subscription['channel'].split(':')[1]
+            if (
+                subscription["action"] == "sub"
+                and "character:" in subscription["channel"]
+            ):
+                character_id = subscription["channel"].split(":")[1]
+                character_ids.add(character_id)
+            if (
+                subscription["action"] == "sub"
+                and "corporation:" in subscription["channel"]
+            ):
+                corp_id = subscription["channel"].split(":")[1]
                 corp_ids.add(corp_id)
         # Check if the victim is a subscribed character or in a subscribed corp
-        victim = data['victim']
-        victim_char_id = str(victim.get('character_id',''))
-        victim_corp_id = str(victim.get('corporation_id',''))
+        victim = data["victim"]
+        victim_char_id = str(victim.get("character_id", ""))
+        victim_corp_id = str(victim.get("corporation_id", ""))
         if victim_char_id in character_ids or victim_corp_id in corp_ids:
             response_char = requests.get(
                 f"https://esi.evetech.net/latest/characters/{victim_char_id}"
@@ -68,7 +75,7 @@ async def send_with_info(channel, km):
                 char_data = response_char.json()
                 victim_name = char_data.get("name")
             else:
-                await channel.send(f'**Fail to get details.**\n{url}')
+                await channel.send(f"**Fail to get details.**\n{url}")
                 return
             response_corp = requests.get(
                 f"https://esi.evetech.net/latest/corporations/{victim_corp_id}"
@@ -78,16 +85,18 @@ async def send_with_info(channel, km):
                 victim_corp_name = corp_data.get("name")
                 victim_corp_ticker = corp_data.get("ticker")
             else:
-                await channel.send(f'**Fail to get details.**\n{url}')
+                await channel.send(f"**Fail to get details.**\n{url}")
                 return
-            await channel.send(f'**{victim_name}[{victim_corp_ticker}] FEED** \n{victim_corp_name}\n{url}')
+            await channel.send(
+                f"**{victim_name}[{victim_corp_ticker}] FEED** \n{victim_corp_name}\n{url}"
+            )
             return
         # Check if the victim is killed by a subscribed character or a subscribed corporation
         # Pre-screen attackers ship type for kill_and_loss list
         killer_ship_id = None
-        for attacker in data['attackers']:
-            attacker_char_id = str(attacker.get('character_id', ''))
-            attacker_corp_id = str(attacker.get('corporation_id', ''))
+        for attacker in data["attackers"]:
+            attacker_char_id = str(attacker.get("character_id", ""))
+            attacker_corp_id = str(attacker.get("corporation_id", ""))
             if attacker_char_id in character_ids or attacker_corp_id in corp_ids:
                 response_attacker_name = requests.get(
                     f"https://esi.evetech.net/latest/characters/{attacker_char_id}"
@@ -96,7 +105,7 @@ async def send_with_info(channel, km):
                     attacker_data = response_attacker_name.json()
                     attacker_name = attacker_data.get("name")
                 else:
-                    await channel.send(f'**Fail to get details.**\n{url}')
+                    await channel.send(f"**Fail to get details.**\n{url}")
                     return
                 response_attacker_corp = requests.get(
                     f"https://esi.evetech.net/latest/corporations/{attacker_corp_id}"
@@ -106,28 +115,32 @@ async def send_with_info(channel, km):
                     attacker_corp_name = attacker_corp_data.get("name")
                     attacker_corp_ticker = attacker_corp_data.get("ticker")
                 else:
-                    await channel.send(f'**Fail to get details.**\n{url}')
+                    await channel.send(f"**Fail to get details.**\n{url}")
                     return
-                await channel.send(f'**{attacker_name}[{attacker_corp_ticker}] IS KILLING** \n{attacker_corp_name}\n{url}')
+                await channel.send(
+                    f"**{attacker_name}[{attacker_corp_ticker}] IS KILLING** \n{attacker_corp_name}\n{url}"
+                )
                 return
-            if str(attacker.get('ship_type_id','')) in kill_and_loss.keys():
-                killer_ship_id = attacker.get('ship_type_id','')
+            if str(attacker.get("ship_type_id", "")) in kill_and_loss.keys():
+                killer_ship_id = attacker.get("ship_type_id", "")
         # Check if the attacker ship type is on the kill_and_loss dic
         if killer_ship_id is not None:
-            await channel.send(f'**A {kill_and_loss[victim_ship_id]} CONTRIBUTES TO** \n{url}')
+            await channel.send(
+                f"**A {kill_and_loss[killer_ship_id]} CONTRIBUTES TO** \n{url}"
+            )
             return
         # Check if the victim ship type is subscribed
-        victim_ship_id = str(victim.get('ship_type_id',''))
+        victim_ship_id = str(victim.get("ship_type_id", ""))
         if victim_ship_id in kill_and_loss.keys():
-            await channel.send(f'**A {kill_and_loss[victim_ship_id]} DEAD:** \n{url}')
+            await channel.send(f"**A {kill_and_loss[victim_ship_id]} DEAD:** \n{url}")
             return
         if victim_ship_id in only_loss.keys():
-            await channel.send(f'**A {only_loss[victim_ship_id]} DEAD:** \n{url}')
+            await channel.send(f"**A {only_loss[victim_ship_id]} DEAD:** \n{url}")
             return
 
-
-    await channel.send(f'**What happened?**\n{url}')
+    await channel.send(f"**What happened?**\n{url}")
     return
+
 
 def on_ws_message(ws, message, track_kill):
     global LAST_MESSAGE_TIME
@@ -145,9 +158,11 @@ def on_ws_message(ws, message, track_kill):
         channel = bot.get_channel(channel_id)
         # Send url only if track_kill is True or ship_id is in only_loss
         if channel:
-            if (track_kill or ship_id in only_loss.values()):
+            if track_kill or ship_id in only_loss.values():
                 info_logger.info(f"Sending message to channel {channel.name}")
-                asyncio.run_coroutine_threadsafe(send_with_info(channel, data), bot.loop)
+                asyncio.run_coroutine_threadsafe(
+                    send_with_info(channel, data), bot.loop
+                )
             else:
                 info_logger.info("Discard message")
         else:
@@ -355,9 +370,7 @@ def delete_subscription(sub_type, sub_id, filename="subscriptions.json"):
 async def sub(ctx, entity_type: str, *, entity_name: str):
     # Check if the entity_type is valid
     if entity_type.lower() not in ["char", "corp"]:
-        await ctx.send(
-            "Invalid search type. Please select from **char** or **corp**."
-        )
+        await ctx.send("Invalid search type. Please select from **char** or **corp**.")
         return
 
     url = "https://esi.evetech.net/latest/universe/ids/?datasource=tranquility&language=en"
@@ -412,9 +425,7 @@ async def sub(ctx, entity_type: str, *, entity_name: str):
 async def unsub(ctx, entity_type: str, *, entity_name: str):
     # Check if the entity_type is valid
     if entity_type.lower() not in ["char", "corp"]:
-        await ctx.send(
-            "Invalid search type. Please select from **char** or **corp**."
-        )
+        await ctx.send("Invalid search type. Please select from **char** or **corp**.")
         return
 
     url = "https://esi.evetech.net/latest/universe/ids/?datasource=tranquility&language=en"
@@ -531,8 +542,8 @@ async def list(ctx):
                         name = data.get("name")
                         if name:
                             systems.add(name)
-                else: 
-                    info_logger.info(f'Cannot find id:{id} of type {type}')
+                else:
+                    info_logger.info(f"Cannot find id:{id} of type {type}")
 
     except FileNotFoundError:
         print("File not found. Please check the file path.")
@@ -545,9 +556,15 @@ async def list(ctx):
         return {}
     result = "**Currently subscribing - **\n\n"
     if characters:
-        result += "**characters:**\n" + "\n".join(sorted(characters, key=str.casefold)) + "\n\n"
+        result += (
+            "**characters:**\n"
+            + "\n".join(sorted(characters, key=str.casefold))
+            + "\n\n"
+        )
     if corps:
-        result += "**corporations:**\n" + "\n".join(sorted(corps, key=str.casefold)) + "\n\n"
+        result += (
+            "**corporations:**\n" + "\n".join(sorted(corps, key=str.casefold)) + "\n\n"
+        )
     if groups:
         result += "**groups:**\n" + "\n".join(sorted(groups, key=str.casefold)) + "\n\n"
     if ships:
