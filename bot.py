@@ -10,6 +10,9 @@ import time
 from config import *
 import logging
 import coloredlogs
+from logzhanfan import all_in_one
+from PIL import Image
+import io
 
 LAST_MESSAGE_TIME = None
 global ws_sub_kill_and_loss, ws_sub_only_loss
@@ -557,7 +560,30 @@ async def list(ctx):
     # Trim any extra newline characters from the end of the string
     await ctx.send(result.strip())
 
+# Start of new code
 
+# !zhanfan [attach log.txt file to get a zhanfan analysis image]
+@bot.command(name='zhanfan')
+async def receive_file(ctx):
+    # Check if there are attachments in the message
+    if ctx.message.attachments:
+        # assuming there's at least one attachment
+        attachment = ctx.message.attachments[0]
+        if attachment.filename.endswith('.txt'):
+            # Download the attachment into a BytesIO buffer
+            file_content = await attachment.read()
+            # Convert bytes to string
+            file_content = file_content.decode('utf-8')
+            # Split the content into lines
+            lines = file_content.splitlines()
+            zhanfan_image = all_in_one(lines)
+            with io.BytesIO() as image_binary:
+                zhanfan_image.save(image_binary, 'PNG')
+                image_binary.seek(0)
+                # Send the image in the channel
+                await ctx.reply(file=discord.File(fp=image_binary, filename='zhanfan.png'))
+    else:
+        await ctx.send("Please attach a .txt file with the command.")
 # End of new code
 
 
