@@ -10,6 +10,9 @@ import time
 from config import *
 import logging
 import coloredlogs
+from logzhanfan import all_in_one
+from PIL import Image
+import io
 
 LAST_MESSAGE_TIME = None
 global ws_sub_kill_and_loss, ws_sub_only_loss
@@ -34,6 +37,100 @@ Description: This function is used to send message to discord channel
 @:return: None
 """
 
+async def send_with_info(channel, km):
+    kill_id = km.get("killID")
+    kill_hash = km.get("hash")
+    url = km.get("url")
+    response = requests.get(
+        f"https://esi.evetech.net/latest/killmails/{kill_id}/{kill_hash}"
+    )
+    # Get detailed killmail info from ccp esi
+    if response.status_code == 200:
+        data = response.json()
+        # Retrieve the subscribed characters and corporations
+        with open("subscriptions.json", 'r') as file:
+            subsriptions = json.load(file)
+        character_ids = set()
+        corp_ids = set()
+        for subscription in subsriptions:
+            if subscription['action'] == 'sub' and 'character:' in subscription['channel']:
+                character_id = subscription['channel'].split(':')[1]
+                character_ids.add(character_id)   
+            if subscription['action'] == 'sub' and 'corporation:' in subscription['channel']:
+                corp_id = subscription['channel'].split(':')[1]
+                corp_ids.add(corp_id)
+        # Check if the victim is a subscribed character or in a subscribed corp
+        victim = data['victim']
+        victim_char_id = str(victim.get('character_id',''))
+        victim_corp_id = str(victim.get('corporation_id',''))
+        if victim_char_id in character_ids or victim_corp_id in corp_ids:
+            response_char = requests.get(
+                f"https://esi.evetech.net/latest/characters/{victim_char_id}"
+            )
+            if response_char.status_code == 200:
+                char_data = response_char.json()
+                victim_name = char_data.get("name")
+            else:
+                await channel.send(f'**Fail to get details.**\n{url}')
+                return
+            response_corp = requests.get(
+                f"https://esi.evetech.net/latest/corporations/{victim_corp_id}"
+            )
+            if response_corp.status_code == 200:
+                corp_data = response_corp.json()
+                victim_corp_name = corp_data.get("name")
+                victim_corp_ticker = corp_data.get("ticker")
+            else:
+                await channel.send(f'**Fail to get details.**\n{url}')
+                return
+            await channel.send(f'**{victim_name}[{victim_corp_ticker}] FEED** \n{victim_corp_name}\n{url}')
+            return
+        # Check if the victim is killed by a subscribed character or a subscribed corporation
+        # Pre-screen attackers ship type for kill_and_loss list
+        killer_ship_id = None
+        for attacker in data['attackers']:
+            attacker_char_id = str(attacker.get('character_id', ''))
+            attacker_corp_id = str(attacker.get('corporation_id', ''))
+            if attacker_char_id in character_ids or attacker_corp_id in corp_ids:
+                response_attacker_name = requests.get(
+                    f"https://esi.evetech.net/latest/characters/{attacker_char_id}"
+                )
+                if response_attacker_name.status_code == 200:
+                    attacker_data = response_attacker_name.json()
+                    attacker_name = attacker_data.get("name")
+                else:
+                    await channel.send(f'**Fail to get details.**\n{url}')
+                    return
+                response_attacker_corp = requests.get(
+                    f"https://esi.evetech.net/latest/corporations/{attacker_corp_id}"
+                )
+                if response_attacker_corp.status_code == 200:
+                    attacker_corp_data = response_attacker_corp.json()
+                    attacker_corp_name = attacker_corp_data.get("name")
+                    attacker_corp_ticker = attacker_corp_data.get("ticker")
+                else:
+                    await channel.send(f'**Fail to get details.**\n{url}')
+                    return
+                await channel.send(f'**{attacker_name}[{attacker_corp_ticker}] IS KILLING** \n{attacker_corp_name}\n{url}')
+                return
+            if str(attacker.get('ship_type_id','')) in kill_and_loss.keys():
+                killer_ship_id = attacker.get('ship_type_id','')
+        # Check if the attacker ship type is on the kill_and_loss dic
+        if killer_ship_id is not None:
+            await channel.send(f'**A {kill_and_loss[victim_ship_id]} CONTRIBUTES TO** \n{url}')
+            return
+        # Check if the victim ship type is subscribed
+        victim_ship_id = str(victim.get('ship_type_id',''))
+        if victim_ship_id in kill_and_loss.keys():
+            await channel.send(f'**A {kill_and_loss[victim_ship_id]} DEAD:** \n{url}')
+            return
+        if victim_ship_id in only_loss.keys():
+            await channel.send(f'**A {only_loss[victim_ship_id]} DEAD:** \n{url}')
+            return
+
+
+    await channel.send(f'**What happened?**\n{url}')
+    return
 
 async def send_with_info(channel, km):
     kill_id = km.get("killID")
@@ -158,11 +255,10 @@ def on_ws_message(ws, message, track_kill):
         channel = bot.get_channel(channel_id)
         # Send url only if track_kill is True or ship_id is in only_loss
         if channel:
-            if track_kill or ship_id in only_loss.values():
+            if (track_kill or ship_id in only_loss.values()):
                 info_logger.info(f"Sending message to channel {channel.name}")
-                asyncio.run_coroutine_threadsafe(
-                    send_with_info(channel, data), bot.loop
-                )
+                asyncio.run_coroutine_threadsafe(send_with_info(channel, data), bot.loop)
+
             else:
                 info_logger.info("Discard message")
         else:
@@ -542,8 +638,8 @@ async def list(ctx):
                         name = data.get("name")
                         if name:
                             systems.add(name)
-                else:
-                    info_logger.info(f"Cannot find id:{id} of type {type}")
+                else: 
+                    info_logger.info(f'Cannot find id:{id} of type {type}')
 
     except FileNotFoundError:
         print("File not found. Please check the file path.")
@@ -556,15 +652,10 @@ async def list(ctx):
         return {}
     result = "**Currently subscribing - **\n\n"
     if characters:
-        result += (
-            "**characters:**\n"
-            + "\n".join(sorted(characters, key=str.casefold))
-            + "\n\n"
-        )
+        result += "**characters:**\n" + "\n".join(sorted(characters, key=str.casefold)) + "\n\n"
     if corps:
-        result += (
-            "**corporations:**\n" + "\n".join(sorted(corps, key=str.casefold)) + "\n\n"
-        )
+        result += "**corporations:**\n" + "\n".join(sorted(corps, key=str.casefold)) + "\n\n"
+
     if groups:
         result += "**groups:**\n" + "\n".join(sorted(groups, key=str.casefold)) + "\n\n"
     if ships:
@@ -574,7 +665,30 @@ async def list(ctx):
     # Trim any extra newline characters from the end of the string
     await ctx.send(result.strip())
 
+# Start of new code
 
+# !zhanfan [attach log.txt file to get a zhanfan analysis image]
+@bot.command(name='zhanfan')
+async def receive_file(ctx):
+    # Check if there are attachments in the message
+    if ctx.message.attachments:
+        # assuming there's at least one attachment
+        attachment = ctx.message.attachments[0]
+        if attachment.filename.endswith('.txt'):
+            # Download the attachment into a BytesIO buffer
+            file_content = await attachment.read()
+            # Convert bytes to string
+            file_content = file_content.decode('utf-8')
+            # Split the content into lines
+            lines = file_content.splitlines()
+            zhanfan_image = all_in_one(lines)
+            with io.BytesIO() as image_binary:
+                zhanfan_image.save(image_binary, 'PNG')
+                image_binary.seek(0)
+                # Send the image in the channel
+                await ctx.reply(file=discord.File(fp=image_binary, filename='zhanfan.png'))
+    else:
+        await ctx.send("Please attach a .txt file with the command.")
 # End of new code
 
 
