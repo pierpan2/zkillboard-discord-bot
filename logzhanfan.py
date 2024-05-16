@@ -1,3 +1,4 @@
+from matplotlib import font_manager
 import io
 import re
 from collections import defaultdict
@@ -5,6 +6,9 @@ import warnings
 warnings.filterwarnings("ignore")
 import matplotlib.pyplot as plt
 from PIL import Image, ImageDraw, ImageFont
+
+font_path = "C:\\Users\\dell\\Downloads\\微软雅黑.ttf"
+font_name = "Microsoft YaHei"
 
 def parse_log(lines):
     language = 'en'
@@ -18,6 +22,9 @@ def parse_log(lines):
         r'\[([\d\.\s:]+)\] \(combat\) Your group of (.+?) misses (.+?) completely - \2')
     miss_you_pattern = re.compile(
         r'\[([\d\.\s:]+)\] \(combat\) (.+?) misses you completely - (.+)')
+    # [ 2024.05.15 22:54:46 ] (combat) Warp disruption attempt from  Claw │  [NERV] to you!
+    point_pattern = re.compile(
+        r'\[([\d\.\s:]+)\] \(combat\) Warp (disruption|scramble) attempt from (.+?) to (.+)')
     listener_name = ''
     if '游戏记录' in lines[1]:
         combat_pattern = re.compile(
@@ -29,6 +36,8 @@ def parse_log(lines):
             r'\[([\d\.\s:]+)\] \(combat\) 你的一组(.+?)\*完全没有打中(.+?) - \2')
         miss_you_pattern = re.compile(
             r'\[([\d\.\s:]+)\] \(combat\) (.+?)完全没有打中你 - (.+)')
+        point_pattern = re.compile(
+            r'\[([\d\.\s:]+)\] \(combat\) (.+?)\s*试图跃迁(扰频|扰断)\s(.+)')
         # Extract the name of the listener from the second line of the file
         listener_name = re.search(r'收听者: (.+)', lines[2]).group(1)
         print(f"战犯: {listener_name}")
@@ -134,6 +143,32 @@ def parse_log(lines):
             # print(damage)
             continue
         # results.append({"line": clean_line})
+        match_point = point_pattern.match(clean_line)
+        if match_point:
+            # print(match_point)
+            time_stamp = match_point.group(1)
+            point_type = match_point.group(2)
+            point_from = match_point.group(3)
+            point_to = match_point.group(4)
+            if language == 'zh':
+                time_stamp = match_point.group(1)
+                point_type = match_point.group(3)
+                point_from = match_point.group(2)
+                point_to = match_point.group(4)
+                
+            if point_to.endswith('!') or point_to.endswith('！'):
+                point_to = point_to[:-1]
+            point = {
+                "type": "point",
+                "time": time_stamp,
+                "point_type": point_type,
+                "point_from": point_from,
+                "point_to": point_to,
+            }
+            if point_from == 'you' or point_to == 'you' or \
+                point_from == '你' or point_to == '你':
+                results.append(point)
+            # print(point)
     return results, language, listener_name
 
 def statistics(damages, language, name):
@@ -141,6 +176,7 @@ def statistics(damages, language, name):
     weapon_stats = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
     rep_stats = defaultdict(lambda: defaultdict(int))
     damage_stats = defaultdict(int)
+    points = []
     if language == 'en':
         dmg_to = 'to'
         dmg_from = 'from'
@@ -170,8 +206,11 @@ def statistics(damages, language, name):
             rep_stats['to'][damage['game_id']] += damage['rep_number']
         if damage['type'] == 'repair' and damage['direction'] == rep_by:
             rep_stats['by'][damage['game_id']] += damage['rep_number']
-
+        if damage['type'] == 'point':
+            points.append(damage)
+            # print(damage)
     # Prepare output dictionary
+
     damage_detail = []
     for game_id, damage in damage_stats.items():
         damage_detail.append((game_id, damage))
@@ -220,14 +259,14 @@ def statistics(damages, language, name):
         rep_receive.append((man, amount))
     rep_receive = sorted(rep_receive, key=lambda item: item[1], reverse=True)
 
-
     output = {
         'name': name,
         'damage_detail': damage_detail,
         'damage_done': damage_done,
         'damage_receive': damage_receive,
         'rep_done': rep_done,
-        'rep_receive': rep_receive
+        'rep_receive': rep_receive,
+        'points': points
     }
     return output
 
@@ -249,37 +288,46 @@ def draw_plots_from_stats(stats, language):
         rep_dmg_receive_img = rep_dmg_receive_plot(stats['rep_receive'], [(item[0], item[1])
                         for item in stats['damage_receive']], language)
         # rep_dmg_receive_img.show()
+
+    points_img = points_plot(stats['points'], language)
+    # points_img.show()
     rep_done_img = None
     damge_done_img = None
     damage_detail_img = None
-    output_img = None
+    # output_img = None
+    # print(stats['name'])
+    overall_img = overall_img_draw((1000, 200), f'Name: {stats["name"]}')
+    # overall_img.show()
     if total_rep > 2000:
         rep_done_img = rep_done_plot(stats['rep_done'], language)
         # rep_done_img.show()
         text = f'Name: {stats["name"]}\n\n Total Repair Amount:  {total_rep:,}\n\nTotal Damage Receive: {total_damage_rec:,}'
         overall_img = overall_img_draw(rep_done_img.size, text)
         # overall_img.show()
-        output_img = assembly_img([overall_img, rep_done_img, rep_dmg_receive_img])
+        # output_img = assembly_img(
+        #     [overall_img, rep_done_img, rep_dmg_receive_img, points_img])
 
     else:
+        # overall_img = None
         if stats['damage_done']:
             damge_done_img = damage_done_plot(stats['damage_done'], language)
             # damge_done_img.show()
-        if stats['damage_detail']: 
-            damage_detail_img = damage_detail_table(stats['damage_detail'], language)
-            # damage_detail_img.show()
-        
-        main_name, main_dmg, main_eff = stats['damage_done'][0]
-        main_accr = main_eff.get('Hits', 0)+main_eff.get('Penetrates', 0) + \
+            main_name, main_dmg, main_eff = stats['damage_done'][0]
+            main_accr = main_eff.get('Hits', 0)+main_eff.get('Penetrates', 0) + \
             main_eff.get('Smashes', 0)+main_eff.get('Wrecks', 0) + \
             main_eff.get('命中', 0)+main_eff.get('穿透', 0) + \
             main_eff.get('强力一击', 0)+main_eff.get('致命一击', 0)
-        text = f'Name: {stats["name"]}\n\n  Total Damage Done:  {total_damage:,}\n\n{main_name}: {main_accr:.1f}% Hit\n\nTotal Damage Receive: {total_damage_rec:,}'
-        overall_img = overall_img_draw(damge_done_img.size, text)
+            text = f'Name: {stats["name"]}\n\n  Total Damage Done:  {total_damage:,}\n\n{main_name}: {main_accr:.1f}% Hit\n\nTotal Damage Receive: {total_damage_rec:,}'
+            overall_img = overall_img_draw(damge_done_img.size, text)
+        if stats['damage_detail']: 
+            damage_detail_img = damage_detail_table(stats['damage_detail'], language)
+            # damage_detail_img.show()
         # overall_img.show()
-        output_img = assembly_img(
-            [overall_img, damge_done_img, rep_dmg_receive_img, damage_detail_img])
-    
+        # output_img = assembly_img(
+        #     [overall_img, damge_done_img, rep_dmg_receive_img, damage_detail_img, points_img])
+    # print(points_img.size)
+    output_img = assembly_img(
+        [overall_img, rep_done_img, damge_done_img, rep_dmg_receive_img, damage_detail_img, points_img])
     # output_img.save('zhanfan.png')
     return output_img
     
@@ -334,9 +382,7 @@ def rep_dmg_receive_plot(list1, list2=[], language = 'en'):
     autolabel(rects1, data1)
     autolabel(rects2, data2)
     plt.tight_layout()
-    if language == 'zh':
-        plt.rcParams['font.sans-serif'] = ['SimHei']
-    return plot2image(fig, plt)
+    return plot2image(fig, plt, language)
 
 def rep_done_plot(list1, language='en'):
     # print(list1)
@@ -372,9 +418,7 @@ def rep_done_plot(list1, language='en'):
 
     autolabel(rects1, values1)
     plt.tight_layout()
-    if language == 'zh':
-        plt.rcParams['font.sans-serif'] = ['SimHei']
-    return plot2image(fig, plt)
+    return plot2image(fig, plt, language)
 
 def damage_done_plot(list1, language='en'):
     # print(language)
@@ -422,23 +466,54 @@ def damage_done_plot(list1, language='en'):
 
     autolabel(rects1, values1)
     plt.tight_layout()
-    if language == 'zh':
-        plt.rcParams['font.sans-serif'] = ['SimHei']
-    return plot2image(fig, plt)
+    return plot2image(fig, plt, language)
+
+
+def points_plot(raw_data, language):
+    data = [(f"[ {line['time']} ]", line['point_type'], line['point_from'][:30], line['point_to'][:30]) for line in raw_data]
+    if not data:
+        return None
+    # Create a new figure and axis (but don't display the axis)
+    # print(len(data))
+    fig, ax = plt.subplots(figsize=(10, 2 + max(2, 0.2 * len(data))))
+    # ax.axis('tight')
+    ax.axis('off')
+    ax.set_title('Tackle Applied and Received')
+
+    # plt.subplots_adjust(top=2.01)
+    # Column headers
+    column_labels = ['Time', 'Type', 'From', 'To']
+    column_widths = [0.3, 0.1, 0.3, 0.3]
+    # Create the table
+    table = ax.table(cellText=data, colLabels=column_labels,
+                     colWidths=column_widths,rowLoc='center', colLoc='center', loc='center')
+
+    # Optionally, you can adjust the table properties or scale it
+    table.auto_set_font_size(False)
+    table.set_fontsize(10)
+    for key, cell in table.get_celld().items():
+        if key[1] :  # Column 1 (second column, since index starts at 0)
+            # Horizontally align text at cente
+            cell.set_text_props(ha='center')
+    fig.tight_layout()
+
+    # plt.show()
+    return plot2image(fig, plt, language)
 
 def damage_detail_table(data, language):
     data = [(item[0], f'{item[1]:,}') for item in data]
     # Create a new figure and axis (but don't display the axis)
-    fig, ax = plt.subplots(figsize=(10, max(2, 0.2 * len(data))))
-    ax.axis('tight')
+    fig, ax = plt.subplots(figsize=(10, 2 + max(2, 0.2 * len(data))))
+    # ax.axis('tight')
     ax.axis('off')
+    ax.set_title('Damage Applied')
 
     # Column headers
     column_labels = ['Target', 'Damage']
     column_widths = [0.7, 0.3]
     # Create the table
     table = ax.table(cellText=data, colLabels=column_labels,
-                     colWidths=column_widths, loc='center')
+                     colWidths=column_widths, rowLoc='center', colLoc='center', loc='center')
 
     # Optionally, you can adjust the table properties or scale it
     table.auto_set_font_size(False)
@@ -447,12 +522,17 @@ def damage_detail_table(data, language):
         if key[1] == 1:  # Column 1 (second column, since index starts at 0)
             # Horizontally align text at cente
             cell.set_text_props(ha='center')
+
     fig.tight_layout()
     
     # plt.show()
-    return plot2image(fig, plt)
+    return plot2image(fig, plt, language)
 
-def plot2image(fig, plt):
+
+def plot2image(fig, plt, language = 'en'):
+    # if language == 'zh':
+    font_manager.fontManager.addfont(font_path)
+    plt.rcParams['font.sans-serif'] = font_name
     # Save the plot to a BytesIO object
     img_buffer = io.BytesIO()
     plt.savefig(img_buffer, format='png')
@@ -471,13 +551,15 @@ def overall_img_draw(size, text):
     width, height = size
     white_image = Image.new("RGB", (width, height), "white")
     draw = ImageDraw.Draw(white_image)
-    font = ImageFont.truetype("arial.ttf", 42)
+    font = ImageFont.truetype(font_path, 42)
     _, _, w, h = draw.textbbox((0, 0), text, font=font)
     draw.text(((width-w)/2, (height-h)/2), text, font=font, fill='black')
     return white_image
 
 def assembly_img(images):
     images = [image for image in images if image]
+    if not images:
+        return None
     # Determine the maximum width and total height
     max_width = max(image.width for image in images)
     total_height = sum(image.height for image in images)
@@ -502,7 +584,8 @@ def all_in_one(lines):
 
 if __name__ == "__main__":
     # Example usage (assuming the logs are saved locally)
-    file_path = 'your_log_file.txt'
+
+    file_path = 'pointjiang.txt'
     with open(file_path, 'r', encoding='utf-8') as file:
         lines = file.readlines()
         output_image = all_in_one(lines)
