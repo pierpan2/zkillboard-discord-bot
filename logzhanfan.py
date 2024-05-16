@@ -25,6 +25,7 @@ def parse_log(lines):
     # [ 2024.05.15 22:54:46 ] (combat) Warp disruption attempt from  Claw │  [NERV] to you!
     point_pattern = re.compile(
         r'\[([\d\.\s:]+)\] \(combat\) Warp (disruption|scramble) attempt from (.+?) to (.+)')
+
     listener_name = ''
     if '游戏记录' in lines[1]:
         combat_pattern = re.compile(
@@ -38,6 +39,7 @@ def parse_log(lines):
             r'\[([\d\.\s:]+)\] \(combat\) (.+?)完全没有打中你 - (.+)')
         point_pattern = re.compile(
             r'\[([\d\.\s:]+)\] \(combat\) (.+?)\s*试图跃迁(扰频|扰断)\s(.+)')
+
         # Extract the name of the listener from the second line of the file
         listener_name = re.search(r'收听者: (.+)', lines[2]).group(1)
         print(f"战犯: {listener_name}")
@@ -267,6 +269,7 @@ def statistics(damages, language, name):
         'rep_done': rep_done,
         'rep_receive': rep_receive,
         'points': points
+
     }
     return output
 
@@ -288,7 +291,6 @@ def draw_plots_from_stats(stats, language):
         rep_dmg_receive_img = rep_dmg_receive_plot(stats['rep_receive'], [(item[0], item[1])
                         for item in stats['damage_receive']], language)
         # rep_dmg_receive_img.show()
-
     points_img = points_plot(stats['points'], language)
     # points_img.show()
     rep_done_img = None
@@ -328,6 +330,7 @@ def draw_plots_from_stats(stats, language):
     # print(points_img.size)
     output_img = assembly_img(
         [overall_img, rep_done_img, damge_done_img, rep_dmg_receive_img, damage_detail_img, points_img])
+
     # output_img.save('zhanfan.png')
     return output_img
     
@@ -584,8 +587,7 @@ def all_in_one(lines):
 
 if __name__ == "__main__":
     # Example usage (assuming the logs are saved locally)
-
-    file_path = 'pointjiang.txt'
+    file_path = 'your_log_file.txt'
     with open(file_path, 'r', encoding='utf-8') as file:
         lines = file.readlines()
         output_image = all_in_one(lines)
